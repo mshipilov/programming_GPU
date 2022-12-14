@@ -4,7 +4,7 @@
 #include <time.h>
 #include <sys/time.h>
 
-#define ARRAY_SIZE 256
+#define ARRAY_SIZE 128
 
 #define MAX(x,y) \
        ({ typeof (x) _x = (x); \
@@ -56,35 +56,52 @@ for(i=0; i<ARRAY_SIZE; i++) {
 
 for(unsigned loop = 0; loop < ARRAY_SIZE*ARRAY_SIZE; loop++)
       printf("%f ", A[loop]);
+for(unsigned loop = 0; loop < ARRAY_SIZE*ARRAY_SIZE; loop++)
+      printf("%f ", Anew[loop]);
 
 #pragma acc data copy(A[:ARRAY_SIZE * ARRAY_SIZE]) create(Anew[:ARRAY_SIZE * ARRAY_SIZE])
 
 while ( err > tol && iter < iter_max ) {
   
-  err = 0.0;
-  iter = iter +1;
- 
-  #pragma acc kernels loop independent collapse(2) reduction(max:err)
-  for (j=1; j <m-1; ++j) {
-    
-    for (i=1; i <n-1; ++i) {
-      Anew[i+j*n] = .25 *( A[(i+1)+j*n] + A[(i-1)+j*n] + A[i+(j-1)*n] + A[i+(j+1)*n]);
-      err = MAX(err, Anew[i+j*n]-A[i+j*n]);
+  iter = iter +2;
+  if (iter % 100 == 0){
+    err = 0.0;
+    #pragma acc kernels loop independent collapse(2) async
+    for (j=1; j <m-1; ++j) {
+      for (i=1; i <n-1; ++i) {
+        Anew[i+j*n] = .25 *( A[(i+1)+j*n] + A[(i-1)+j*n] + A[i+(j-1)*n] + A[i+(j+1)*n]);
+        }
       }
-    }
-  
-  // cycle for A = Anew:
-  #pragma acc kernels loop independent collapse(2)
-  for (j=1; j <m-1; ++j) {
-    for (i=1; i <n-1; ++i) {
-      A[i+j*n] = Anew[i+j*n];
+
+    #pragma acc kernels loop independent collapse(2) reduction(max:err) async
+    for (j=1; j <m-1; ++j) {
+      for (i=1; i <n-1; ++i) {
+        A[i+j*n] = .25 *( Anew[(i+1)+j*n] + Anew[(i-1)+j*n] + Anew[i+(j-1)*n] + Anew[i+(j+1)*n]);
+        err = MAX(err, Anew[i+j*n]-A[i+j*n]);
+        }
       }
-    }
-  
-  if (iter % 100 == 0) {
-      printf("in process iter=%d, err=%e\n", iter, err);  
+
+    printf("in process iter=%d, err=%e\n", iter, err); 
+  }
+  else {
+    #pragma acc kernels present(A[:ARRAY_SIZE * ARRAY_SIZE], Anew[:ARRAY_SIZE * ARRAY_SIZE]) async
+    {
+      #pragma acc loop independent collapse(2)
+      for (j=1; j <m-1; ++j) {
+        for (i=1; i <n-1; ++i) {
+          Anew[i+j*n] = .25 *( A[(i+1)+j*n] + A[(i-1)+j*n] + A[i+(j-1)*n] + A[i+(j+1)*n]);
+          }
+        }
+
+      #pragma acc loop independent collapse(2)
+      for (j=1; j <m-1; ++j) {
+        for (i=1; i <n-1; ++i) {
+          A[i+j*n] = .25 *( Anew[(i+1)+j*n] + Anew[(i-1)+j*n] + Anew[i+(j-1)*n] + Anew[i+(j+1)*n]);
+          }
+        }
     }
   }
+} 
 
 printf("final iter=%d, err=%e\n", iter, err);
 free(A);
