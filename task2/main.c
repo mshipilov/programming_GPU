@@ -32,8 +32,8 @@ unsigned n = ARRAY_SIZE;
 float arr_size = ARRAY_SIZE;
 
 
-float *A = malloc(sizeof(float) * ARRAY_SIZE * ARRAY_SIZE);
-float *Anew = malloc(sizeof(float) * ARRAY_SIZE * ARRAY_SIZE);
+float *A = (float*)malloc(sizeof(float) * ARRAY_SIZE * ARRAY_SIZE);
+float *Anew = (float*)malloc(sizeof(float) * ARRAY_SIZE * ARRAY_SIZE);
 
 //for(size_t i=0;i<ARRAY_SIZE*ARRAY_SIZE;i++) {
 //     A[i]=rand();
@@ -45,13 +45,16 @@ float *Anew = malloc(sizeof(float) * ARRAY_SIZE * ARRAY_SIZE);
 float STEP_SIZE = 10 / (arr_size-1);
 for(i=0; i<ARRAY_SIZE; i++) {
   // upper line
-  A[i] = 20 + i*STEP_SIZE;
+  Anew[i] = A[i] = 20 + i*STEP_SIZE;
   // down line
   A[ARRAY_SIZE*(ARRAY_SIZE-1) + i] = 10 + i*STEP_SIZE;
+  Anew[ARRAY_SIZE*(ARRAY_SIZE-1) + i] = 10 + i*STEP_SIZE;
   // left line
   A[i*ARRAY_SIZE] = 20 - i*STEP_SIZE;
+  Anew[i*ARRAY_SIZE] = 20 - i*STEP_SIZE;
   // right line
   A[i*ARRAY_SIZE + (ARRAY_SIZE-1)] = 30 - i*STEP_SIZE;
+  Anew[i*ARRAY_SIZE + (ARRAY_SIZE-1)] = 30 - i*STEP_SIZE;
 }
 
 for(unsigned loop = 0; loop < ARRAY_SIZE*ARRAY_SIZE; loop++)
@@ -59,12 +62,13 @@ for(unsigned loop = 0; loop < ARRAY_SIZE*ARRAY_SIZE; loop++)
 for(unsigned loop = 0; loop < ARRAY_SIZE*ARRAY_SIZE; loop++)
       printf("%f ", Anew[loop]);
 
-#pragma acc data copy(A[:ARRAY_SIZE * ARRAY_SIZE]) create(Anew[:ARRAY_SIZE * ARRAY_SIZE])
+#pragma acc data copy(A[:ARRAY_SIZE * ARRAY_SIZE]) copyin(Anew[:ARRAY_SIZE * ARRAY_SIZE]) create(err)
 
 while ( err > tol && iter < iter_max ) {
   
   iter = iter +2;
   if (iter % 100 == 0){
+#pragma acc serial async
     err = 0.0;
     #pragma acc kernels loop independent collapse(2) async
     for (j=1; j <m-1; ++j) {
@@ -72,15 +76,15 @@ while ( err > tol && iter < iter_max ) {
         Anew[i+j*n] = .25 *( A[(i+1)+j*n] + A[(i-1)+j*n] + A[i+(j-1)*n] + A[i+(j+1)*n]);
         }
       }
-
     #pragma acc kernels loop independent collapse(2) reduction(max:err) async
     for (j=1; j <m-1; ++j) {
       for (i=1; i <n-1; ++i) {
         A[i+j*n] = .25 *( Anew[(i+1)+j*n] + Anew[(i-1)+j*n] + Anew[i+(j-1)*n] + Anew[i+(j+1)*n]);
-        err = MAX(err, Anew[i+j*n]-A[i+j*n]);
+        err = MAX(err, fabs(Anew[i+j*n]-A[i+j*n]));
         }
       }
-
+    #pragma acc wait
+    #pragma acc update self(err)
     printf("in process iter=%d, err=%e\n", iter, err); 
   }
   else {
